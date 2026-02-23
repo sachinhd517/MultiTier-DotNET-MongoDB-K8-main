@@ -1,0 +1,150 @@
+# -------------------------------------------------------
+# Secret: MongoDB Root Credentials
+# -------------------------------------------------------
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mongo-secret
+type: Opaque
+data:
+  mongo-root-username: cm9vdA==        # base64 for "root"
+  mongo-root-password: ZXhhbXBsZQ==    # base64 for "example"
+---
+# -------------------------------------------------------
+# PersistentVolumeClaim: MongoDB
+# -------------------------------------------------------
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongo-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+# -------------------------------------------------------
+# Deployment: MongoDB
+# -------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      containers:
+        - name: mongodb
+          image: mongo:7.0
+          ports:
+            - containerPort: 27017
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mongo-secret
+                  key: mongo-root-username
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongo-secret
+                  key: mongo-root-password
+          volumeMounts:
+            - name: mongo-storage
+              mountPath: /data/db
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "echo 'db.stats()' | mongosh --host localhost:27017 -u $MONGO_INITDB_ROOT_USERNAME -p $MONGO_INITDB_ROOT_PASSWORD --authenticationDatabase admin"
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: mongo-storage
+          persistentVolumeClaim:
+            claimName: mongo-pvc
+---
+# -------------------------------------------------------
+# Service: MongoDB
+# -------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb
+spec:
+  selector:
+    app: mongodb
+  ports:
+    - port: 27017
+      targetPort: 27017
+---
+# -------------------------------------------------------
+# ConfigMap: WebApp Environment Settings
+# -------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: webapp-config
+data:
+  ASPNETCORE_ENVIRONMENT: Development
+  MongoDB__DatabaseName: ProductDB
+---
+# -------------------------------------------------------
+# Deployment: .NET WebApp
+# -------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dotnet-webapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dotnet-webapp
+  template:
+    metadata:
+      labels:
+        app: dotnet-webapp
+    spec:
+      containers:
+        - name: webapp
+          image: adijaiswal/dotnet-mongo-crud:latest
+          ports:
+            - containerPort: 5035
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: webapp-config
+                  key: ASPNETCORE_ENVIRONMENT
+            - name: MongoDB__DatabaseName
+              valueFrom:
+                configMapKeyRef:
+                  name: webapp-config
+                  key: MongoDB__DatabaseName
+            - name: MongoDB__ConnectionString
+              value: "mongodb://root:example@mongodb:27017"
+---
+# -------------------------------------------------------
+# Service: .NET WebApp
+# -------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: dotnet-webapp
+spec:
+  selector:
+    app: dotnet-webapp
+  ports:
+    - port: 80
+      targetPort: 5035
+  type: LoadBalancer
