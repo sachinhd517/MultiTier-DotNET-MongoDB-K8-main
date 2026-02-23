@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE_NAME: adijaiswal/dotnet-mongo-crud
+  IMAGE_NAME: sachinhd517/dotnet-mongo-crud
   TAG: latest
 
 jobs:
